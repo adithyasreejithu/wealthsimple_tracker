@@ -4,7 +4,7 @@ Things that will need to be added/changed
 TOP PRIORTY 
 - Issue with reading empty files 
     - This can be done by reading all the data from the 
-- some files arent being read properly (create log to find which ones)
+- some files arent being read properly (create log to find which ones) - O
 and find a better regrex statement to read it
 
 - The list files will need to be read in chroniclogical order 
@@ -24,21 +24,23 @@ import os
 import re 
 import shutil
 import logging
-import db_func as func
 import numpy as np 
+import pandas as pd 
+import db_func as func
 from pypdf import PdfReader
+from openpyxl import workbook
 
 # Setting up Logging Operations 
 logger = logging.getLogger("pdf_Reader")
 logger.setLevel(logging.DEBUG)
 
 # File Handlers for Logging 
-file_handler = logging.FileHandler("file_processing.log")
+file_handler = logging.FileHandler("file_processing.log", mode="w")
 file_handler.setLevel(logging.DEBUG)
 
 # Creating Formatter 
 formatter = logging.Formatter(
-    "%(levelname)s - %(name)s: %(message)s"
+    "%(levelname)s | %(name)s: %(message)s"
 )
 
 # Adding formatter and handler to logger
@@ -108,7 +110,7 @@ def single_page(reader, min):
     return read_values
 
 def multiple_pages(reader, min, max):
-    logger.info("File only has data on multple pages")
+    logger.info("File has data on multple pages")
     flag = False 
     read_values = np.array([])
 
@@ -158,11 +160,13 @@ def read_file(file_name):
     
     else:
         read_values = multiple_pages(reader, min, max)
-        print("wellfuck")
+        print("well damn")
 
 
 
     # # page_search(reader)
+
+
     # # page = reader.pages[1]
 
     # read_pages = page_search(reader)
@@ -283,7 +287,7 @@ def read_file(file_name):
         shares = 0
 
         # Regular Expression with Capture Groups
-        pattern = r'(\d{4}-\d{2}-\d{2})DIV\s(\w+)\s-\s(.+):\s(.+),\sreceived at (\d{4}-\d{2}-\d{2})\s\$(\d+\.\d+)\s\$(\d+\.\d+)\s\$(\d+\.\d+)'
+        pattern = r'(\d{4}-\d{2}-\d{2})\s*DIV\s+(\w+)\s*-\s*(.+?):\s*(.+?),\s*received (?:at|on)\s+(\d{4}-\d{2}-\d{2}).*?\$([\d,]+\.\d{2})\s*\$([\d,]+\.\d{2})\s*\$([\d,]+\.\d{2})'
 
         match = re.match(pattern, item)
 
@@ -300,7 +304,9 @@ def read_file(file_name):
         trans_type = "Buy"
 
         # regex pattern
-        pattern = r'(\d{4}-\d{2}-\d{2})BUY\s(\S+)\s-\s(.+?):\sBought\s(\d+\.\d+)\sshares\s\(executed\sat\s(\d{4}-\d{2}-\d{2})\)(?:,\sFX Rate:\s([\d.]+))?\s?\$(\d+(?:\.\d+)?)\s\$(\d+(?:\.\d+)?)\s\$(\d+(?:\.\d+)?)'
+        # pattern = r'(\d{4}-\d{2}-\d{2})BUY\s(\S+)\s-\s(.+?):\sBought\s(\d+\.\d+)\sshares\s\(executed\sat\s(\d{4}-\d{2}-\d{2})\)(?:,\sFX Rate:\s([\d.]+))?\s?\$(\d+(?:\.\d+)?)\s\$(\d+(?:\.\d+)?)\s\$(\d+(?:\.\d+)?)'
+        pattern = r'(\d{4}-\d{2}-\d{2})BUY\s(\S+)\s-\s(.+?):\sBought\s([\d.]+)\sshares\s\(executed\sat\s(\d{4}-\d{2}-\d{2})\)(?:,\sFX Rate:\s([\d.]+))?\s*\$(\d+\.\d{2})\s\$(\d+\.\d{2})(?:\s\$(\d+\.\d{2}))?'
+
 
         match = re.match(pattern, item)
 
@@ -349,6 +355,12 @@ def read_file(file_name):
             logger.debug(f" No Match found for: {item}")
         return data
 
+def output_assist():
+    output_file = "log_book.xlsx"
+    input_file = "file_processing.log"
+
+    content = pd.read_csv(input_file, delimiter= "|",encoding="utf-8")
+    content.to_excel(output_file,sheet_name="logs", header=False, index= None)
 
 # Caling Function 
 check_folders(folder_path)
@@ -358,11 +370,13 @@ check_folders(destination)
 file_list = unread_files()
 # read_file(file_list[6])
 
-
 for files in file_list:
     logger.info(f"Started reading file: {os.path.basename(files)}")
     read_file(files)
     move_file(files)
+
+
+output_assist()
     
 
 
