@@ -84,15 +84,46 @@ def check_folders(folder):
         os.makedirs(folder)
 
 # Reads dir all the unread files
+# def unread_files():
+#     files = []
+#     with os.scandir(folder_path) as entries: 
+#         for entry in entries: 
+#             if entry.is_file():
+#                 # file_name = entry.name
+#                 file_location = os.path.abspath(entry)
+#                 files.append(file_location)
+#     return files
+
 def unread_files():
+    # Custom month order mapping
+    month_order = {
+        'January': 1, 'February': 2, 'March': 3, 'April': 4,
+        'May': 5, 'June': 6, 'July': 7, 'August': 8,
+        'September': 9, 'October': 10, 'November': 11, 'December': 12
+    }
+
+    def sort_key(file_path):
+        filename = os.path.basename(file_path)
+        name_part = os.path.splitext(filename)[0]  # remove extension
+        try:
+            month, year = name_part.split('_')
+            return (int(year), month_order.get(month, 0))
+        except ValueError:
+            # If file doesn't follow Month_Year, put it at the end
+            return (float('inf'), float('inf'))
+
     files = []
-    with os.scandir(folder_path) as entries: 
-        for entry in entries: 
+    with os.scandir(folder_path) as entries:
+        for entry in entries:
             if entry.is_file():
-                # file_name = entry.name
                 file_location = os.path.abspath(entry)
                 files.append(file_location)
+
+    # Sort based on Month_Year filename
+    files = sorted(files, key=sort_key)
+
     return files
+
 
 def single_page(reader, min): 
     logger.info("File only has data on a single page")
@@ -160,77 +191,6 @@ def read_file(file_name):
     
     else:
         read_values = multiple_pages(reader, min, max)
-        print("well damn")
-
-
-
-    # # page_search(reader)
-
-
-    # # page = reader.pages[1]
-
-    # read_pages = page_search(reader)
-    # max,min = extract_pages(read_pages)
-    # print(max)
-    # text = ""
-
-    # print(f"Number of pages: {len(reader.pages)}")
-    
-    # # Accessing the first page
-    # pagelen = page_search(reader)
-    # max, min = extract_pages(pagelen)
-    # print(f"\nthis is the min{min} and this is the max{max}")
-    # page = reader.pages[int(min)]
-    # print(page.extract_text())
-
-    
-    # for i in range(min, max):
-    #     page = reader.pages[i]
-    #     text = page.extract_text()
-    #     print(f"\n--- Page {i + 1} ---\n{text}")
-   
-    
-    # read_values = np.array([])
-    
-    # # Loop through the pages between min and max
-    # for page in reader.pages[min:max]:
-    #     text = page.extract_text() or ""
-    #     for line in text.split("\n"):
-    #         print(f"this is the {line}")
-    #         if line.__contains__("Activity - Current period"):
-    #             print("hello")
-    #             flag = True
-
-    #         if flag:
-    #             read_values = np.append(read_values, line)
-
-    # print(read_values)
-    # for lines in page.extract_text().split("\n"):
-    #     if lines.__contains__("Activity - Current period"):
-    #         flag = True
-        
-        
-    #     if flag == True:
-    #         read_values = np.append(read_values,lines)
-
-
-
-
-        # Extract text from the page and append it to 'text'
-        # page_text = page.extract_text() or ""  # In case extract_text returns None
-        # text += page_text + "\n"
-        # print(f"This is the text: {text}")
-
-    # read_values = np.array([])
-    # for lines in page.extract_text().split("\n"):
-    #     if lines.__contains__("Activity - Current period"):
-    #         flag = True
-        
-        # Will need an else statement to catch if it does not find the information
-        # Most likely will be on the third page and will need to change line 37 "page = reader.pages[1]"
-        
-        # if flag == True:
-        #     read_values = np.append(read_values,lines)
 
     parsed = read_values[1:2]
     for value in parsed: 
@@ -285,6 +245,7 @@ def read_file(file_name):
         trans_type = "Dividend"
         fx_rate = 0
         shares = 0
+        exchange = "test"
 
         # Regular Expression with Capture Groups
         pattern = r'(\d{4}-\d{2}-\d{2})\s*DIV\s+(\w+)\s*-\s*(.+?):\s*(.+?),\s*received (?:at|on)\s+(\d{4}-\d{2}-\d{2}).*?\$([\d,]+\.\d{2})\s*\$([\d,]+\.\d{2})\s*\$([\d,]+\.\d{2})'
@@ -293,7 +254,7 @@ def read_file(file_name):
 
         if match:
             date, ticker, company, desc, recv_date, amount1, amount2, amount3 = match.groups()
-            stock_id = func.pull_stock_id(ticker, company)
+            stock_id = func.pull_stock_id(ticker, company, exchange)
             func.add_nine(stock_id,date, trans_type, recv_date, shares, fx_rate, amount1, amount2, amount3)
         else:
             print("No match found for:", item)  # Debugging
@@ -313,7 +274,11 @@ def read_file(file_name):
         if match:
             groups = match.groups()
             date, ticker, company, shares, recv_date, fx_rate, amount1, amount2, amount3 = groups
-            stock_id = func.pull_stock_id(ticker, company)
+            if not fx_rate: 
+                exchange = "Cad" # this will need to CAD 
+            else :
+                exchange = "USD"
+            stock_id = func.pull_stock_id(ticker, company, exchange)
             func.add_nine(stock_id,date, trans_type, recv_date, shares, fx_rate, amount1, amount2, amount3)
         else:
             print("No match found for:", item)  # Debugging
@@ -368,6 +333,7 @@ check_folders(destination)
 
 # Checking what files do not exist 
 file_list = unread_files()
+# print(file_list) # For debugging issues 
 # read_file(file_list[6])
 
 for files in file_list:
@@ -376,19 +342,5 @@ for files in file_list:
     move_file(files)
 
 
-output_assist()
+# output_assist()
     
-
-
-
-
-
-
-
-
-
-
-
-
-
-

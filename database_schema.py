@@ -19,7 +19,8 @@ cursor.execute('''
 CREATE TABLE IF NOT EXISTS Stocks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     Ticker TEXT UNIQUE NOT NULL,
-    Company TEXT NOT NULL
+    Company TEXT NOT NULL,
+    Exchange TEXT NOT NULL
 );
 ''')
 
@@ -43,6 +44,22 @@ CREATE TABLE IF NOT EXISTS Transactions(
     )
 
 );
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS History (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    Date TEXT NOT NULL,
+    Stock_ID INTEGER NOT NULL, 
+    Open REAL NOT NULL,
+    Close REAL NOT NULL,
+    Adj_close REAL NOT NULL,
+    High  REAL NOT NULL,
+    Low REAL NOT NULL,
+    Daily_change REAL NOT NULL,
+    FOREIGN KEY (Stock_ID) REFERENCES Stocks(id) ON DELETE CASCADE,
+    UNIQUE (Date, Stock_ID, Open, Adj_close, High, Low, Daily_change)
+    );
 ''')
 
 # Commit changes and close database
