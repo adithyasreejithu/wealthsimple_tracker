@@ -48,18 +48,25 @@ CREATE TABLE IF NOT EXISTS Transactions(
 
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS History (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    Date TEXT NOT NULL,
-    Stock_ID INTEGER NOT NULL, 
-    Open REAL NOT NULL,
-    Close REAL NOT NULL,
-    Adj_close REAL NOT NULL,
-    High  REAL NOT NULL,
-    Low REAL NOT NULL,
-    Daily_change REAL NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,    -- Unique row ID
+    Date TEXT NOT NULL,                      -- Trading date (YYYY-MM-DD)
+    Stock_ID INTEGER NOT NULL,               -- Foreign key to Stocks table
+    Open REAL NOT NULL,                      -- Opening price of stock on this date
+    Close REAL NOT NULL,                     -- Closing price of stock on this date
+    Adj_close REAL NOT NULL,                 -- Adjusted close price
+    High REAL NOT NULL,                      -- Highest price on this date
+    Low REAL NOT NULL,                       -- Lowest price on this date
+    Book_Cost REAL NOT NULL,                 -- Average purchase price per share 
+    Shares INTEGER NOT NULL,                 -- Number of shares held
+    Total_Value REAL,                        -- Market value of holding
+    Unreal_Gains REAL,                       -- Unrealized gains/losses
+    Daily_Change REAL,                       -- Daily change vs. book cost
+    Moving_Avg_20D REAL,                     -- 20-day moving average
+    Volatility_20D REAL,                     -- 20-day rolling volatility
+    Expo_Moving_Average_20D REAL,            -- 20-day exponential moving average
     FOREIGN KEY (Stock_ID) REFERENCES Stocks(id) ON DELETE CASCADE,
-    UNIQUE (Date, Stock_ID, Open, Adj_close, High, Low, Daily_change)
-    );
+    UNIQUE (Date, Stock_ID)                  
+);
 ''')
 
 # Commit changes and close database
