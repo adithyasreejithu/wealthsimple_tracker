@@ -90,26 +90,6 @@ def dateframe_to_db(df):
     df.to_sql("History", connection, if_exists="append", index=False)
     connection.close()
 
-# def dateframe_to_db(df):
-#     if df.empty:
-#         print("⚠️ DataFrame is empty. Nothing to insert into the database.")
-#         return
-
-#     try:
-#         print("✅ Inserting the following rows into the database:")
-#         print(df.head(5))  # Show top 5 rows for verification
-
-#         # Open a connection to the database (adjust the path if needed)
-#         conn = sqlite3.connect("wealthsimple.db")  # Replace with your actual DB name if different
-#         df.to_sql("stock_history", conn, if_exists="append", index=False)  # Replace table name if needed
-#         conn.close()
-
-#         print("✅ Data successfully inserted into the database.")
-#     except Exception as e:
-#         print("❌ An error occurred while inserting the DataFrame into the database:")
-#         print(str(e))
-
-
 def get_tickers():
     """
     Returns full list of all tickers and their exchanges from the database.
@@ -194,67 +174,6 @@ def get_ticker_last_date_history(ticker):
 #             ORDER BY Executed_Date ASC;
 #         """, (ticker,))
 
-@dataclass
-class InvestmentSummary:
-    total_share: float
-    cad_total: float
-    usd_total: float
-    total_div: float
-
-def get_investment_summary(ticker: str) -> InvestmentSummary:
-    """
-    Returns total shares, CAD and USD cost basis, and total dividends for a ticker.
-    """
-    with sqlite3.connect(database) as connection:
-        cursor = connection.cursor()
-
-        # Total shares
-        cursor.execute("""
-            SELECT 
-                SUM(Transactions.Shares) AS shares_total
-            FROM Transactions
-            INNER JOIN Stocks ON Transactions.Stock_ID = Stocks.id
-            WHERE Type = "Buy" AND Stocks.Ticker = ?;
-        """, (ticker,))
-        total_shares = cursor.fetchone()[0]
-
-        # Cost basis
-        cursor.execute("""
-            SELECT 
-                Transactions.Shares,
-                Transactions.Fx_Rate,
-                Transactions.Value
-            FROM Transactions
-            INNER JOIN Stocks ON Transactions.Stock_ID = Stocks.id
-            WHERE Type = "Buy" AND Stocks.Ticker = ?
-            ORDER BY Transactions.Date ASC;
-        """, (ticker,))
-        cost_basis = cursor.fetchall()
-
-        cad_total = 0
-        usd_total = 0
-        for shares, fx_rate, value in cost_basis:
-            if not fx_rate:
-                cad_total += value
-            else:
-                usd_total += value / fx_rate
-
-        # Dividends
-        cursor.execute("""
-            SELECT 
-                SUM(Transactions.Credit)
-            FROM Transactions
-            INNER JOIN Stocks ON Transactions.Stock_ID = Stocks.id
-            WHERE Type = "Dividend" AND Stocks.Ticker = ?;
-        """, (ticker,))
-        total_div = cursor.fetchone()[0]
-
-        return InvestmentSummary(
-            total_share=total_shares or 0,
-            cad_total=cad_total,
-            usd_total=usd_total,
-            total_div=total_div or 0
-        )
 
 @dataclass
 class StockDataBundle: 
@@ -295,3 +214,130 @@ def get_stock_data_bundle(ticker: int) -> StockDataBundle:
     stock_pur = pd.read_sql_query(get_buys,connection,params=(ticker[0],)) # These are the purchase dates 
     stocks_hist = pd.read_sql_query(get_dates,connection,params=(ticker[0],)) # This the dates stored in the database
     return StockDataBundle(purchases=stock_pur, history=stocks_hist) 
+
+
+# Functions for Streamlit 
+@dataclass
+class InvestmentSummary:
+    total_share: float
+    cad_total: float
+    usd_total: float
+    total_div: float
+    port_percent: float 
+
+def get_investment_summary(ticker: str, date1: str, date2: str) -> InvestmentSummary:
+    """
+    Returns total shares, CAD and USD cost basis, and total dividends for a ticker.
+    """
+    with sqlite3.connect(database) as connection:
+        cursor = connection.cursor()
+
+        # Total shares
+        cursor.execute("""
+            SELECT 
+                SUM(Transactions.Shares) AS shares_total
+            FROM Transactions
+            INNER JOIN Stocks ON Transactions.Stock_ID = Stocks.id
+            WHERE Type = 'Buy' 
+                AND Stocks.Ticker = ?
+                AND Transactions.Date > ?
+                AND Transactions.Date < ?;
+        """, (ticker,date1, date2))
+        total_shares = cursor.fetchone()[0] or 0
+
+        # Cost basis
+        cursor.execute("""
+            SELECT
+                Transactions.Shares,
+                Transactions.Fx_Rate,
+                Transactions.Value
+            FROM Transactions
+            INNER JOIN Stocks ON Transactions.Stock_ID = Stocks.id
+            WHERE Type = 'Buy' 
+                AND Stocks.Ticker = ?
+                AND Transactions.Date > ?
+                AND Transactions.Date < ?
+            ORDER BY Transactions.Date ASC;
+
+        """, (ticker,date1, date2))
+        cost_basis = cursor.fetchall()
+
+        cad_total = 0
+        usd_total = 0
+        for shares, fx_rate, value in cost_basis:
+            if not fx_rate:
+                cad_total += value
+            else:
+                usd_total += value / fx_rate
+
+        # Dividends
+        cursor.execute("""
+            SELECT 
+                SUM(Transactions.Credit)
+            FROM Transactions
+            INNER JOIN Stocks ON Transactions.Stock_ID = Stocks.id
+            WHERE Type = "Dividend" 
+                AND Stocks.Ticker = ?
+                AND Transactions.Date > ?
+                AND Transactions.Date < ?;
+                    """, (ticker, date1, date2))
+        total_div = cursor.fetchone()[0]
+
+        with sqlite3.connect(database) as connection: 
+            cursor = connection.cursor()
+            query = """
+            WITH LastExchange AS (
+            SELECT
+                Stock_ID,
+                Total_Value,
+                ROW_NUMBER() OVER (PARTITION BY Stock_ID ORDER BY Date DESC) AS LE
+            FROM History
+            WHERE Date < ?
+            ) 
+            SELECT
+                Stocks.Ticker,
+                LastExchange.Total_Value
+            FROM LastExchange 
+            INNER JOIN Stocks ON LastExchange.Stock_ID = Stocks.id
+            WHERE LastExchange.LE = 1;
+            """
+            value = pd.read_sql_query(query,connection,params=(date2,))
+            total_value = value["Total_Value"].sum()
+
+            for num, tick in enumerate(value["Ticker"]): 
+                if tick == ticker:
+                    tick_value = value.loc[num, 'Total_Value']
+            
+            port_percent = tick_value/total_value
+            form_port_percent = "{:.2f}".format(port_percent)
+
+            
+        return InvestmentSummary(
+            total_share=total_shares or 0,
+            cad_total=cad_total,
+            usd_total=usd_total,
+            total_div=total_div or 0,
+            port_percent=form_port_percent or 0
+
+        )
+    
+def get_graph_date(tick, start_date, end_date):
+    with sqlite3.connect(database) as connection: 
+        query = """
+        SELECT 
+        History.Date, 
+        History.Adj_close,
+        History.Book_Cost
+        FROM History
+        INNER JOIN Stocks ON History.Stock_ID = Stocks.id
+        WHERE Stocks.Ticker = ?
+            AND History.Date > ?
+            AND History.Date < ?
+        ORDER BY History.Date  ASC;
+        """
+
+    graph_data = pd.read_sql_query(query,connection, params=(tick,start_date,end_date))
+
+    return graph_data
+
+    

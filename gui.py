@@ -1,17 +1,37 @@
 import os 
 import streamlit as st 
 import db_func as func
+import pandas as pd 
 import datetime
+import plotly.express as px 
+
+st.set_page_config(layout="wide")
+
 
 # This will get all the stock tickers from the database 
 tick_retrival = func.get_tickers()
 ticker_display = [ticker for ticker, _ in tick_retrival]
 ticker_display.insert(0,"No Selection") # adds a no selection button to the options 
+# ticker = st.session_state.get("ticker_selectbox")
+# summary = func.get_investment_summary(ticker)
+# if ticker is None or ticker == "No Selection":
+#     st.warning("Please select a ticker to view the investment summary.")
+#     st.stop()
 
 today = datetime.date.today()
 end_date = today - datetime.timedelta(days=1)
 portfolio_start_date = os.getenv("PORTFOILIO_STARTDATE")
 portfolio_start_date = datetime.datetime.strptime(portfolio_start_date, "%Y-%m-%d").date()
+default_range = (today - datetime.timedelta(days=30), today)
+
+if "date_input" not in st.session_state:
+    st.session_state["date_input"] = default_range
+
+if "metrics" not in st.session_state:
+    st.session_state["metrics"] = {}
+
+if "graph_data" not in st.session_state:
+    st.session_state["graph_data"] = pd.DataFrame()
 
 def handle_date_input_change():
     date_input = st.session_state.get("date_input", None)
@@ -22,6 +42,8 @@ def handle_date_input_change():
             return 
         if start < portfolio_start_date:
             st.warning(f"Start date cannot be earlier than {portfolio_start_date}")
+        
+        load_stock()
 
     else:
         st.warning("Please select a valid date range.")
@@ -40,6 +62,7 @@ def handle_date_selection_change():
     if date_selection =="TOT":
         month = portfolio_start_date
         st.session_state["date_input"] = (month,today)
+    load_stock()
 
 def load_stock():
     ticker = st.session_state.get("ticker_selectbox") # This gets the stock selection 
@@ -51,7 +74,30 @@ def load_stock():
     for tick, exch in tick_retrival:
         if ticker == tick:
             st.session_state["exchange"] = exch # This controls the badge colour
-            return
+            break
+ 
+    date1, date2 = st.session_state.get("date_input",{})
+    summary = func.get_investment_summary(ticker, date1, date2)
+ 
+    exhchange_state = st.session_state.get("exchange",{})
+    if exhchange_state == "USD":
+        cb = summary.usd_total
+    else: 
+        cb = summary.cad_total
+
+    print(f"This is the percent {summary.port_percent}")
+
+    # - put the information into the dict 
+    st.session_state["metrics"] = {
+        "Shares": summary.total_share,
+        "CB": cb ,
+        "Div": summary.total_div,
+        "Percent": summary.port_percent,
+    }
+
+    graph_data = func.get_graph_date(ticker, date1, date2)
+
+    st.session_state["graph_data"] = graph_data
 
 
                             #---------- Layout Config ----------#
@@ -99,7 +145,8 @@ with col_left:
                     margin-top: -57px;  /* Adjust this to control vertical spacing */
                 }
             </style>
-        """, unsafe_allow_html=True)   
+        """, unsafe_allow_html=True)  
+     
     option_sb = st.selectbox(
             "",
             options=ticker_display,
@@ -134,17 +181,78 @@ with col_right:
         label_visibility="collapsed",
         default="TOT",
         key="seg_selection",
-        on_change=handle_date_selection_change                           # this
+        on_change=handle_date_selection_change                           
     )   
 
     start_date, end_date = st.date_input(
         "",
-        value=(datetime.date.today() - datetime.timedelta(days=30), datetime.date.today()),
+        # value=(datetime.date.today() - datetime.timedelta(days=30), datetime.date.today()),
         # value=st.session_state["date_input"],
         label_visibility="collapsed",
         key="date_input",
         on_change=handle_date_input_change
     )
 
-    
-    
+# -------- METRICS -------- #
+# shares, cost_basis, divd, percent = st.columns(4)   
+# shares.metric("# of Shares", "1.345", border=True)
+# cost_basis.metric("Cost Basis", "$1234.34", border=True)
+# divd.metric("$ Dividends", "$1234.34", border=True)
+# percent.metric("% of Portfolio", "23.34%", border=True)
+
+sec_summary = st.session_state.get("metrics")
+
+if sec_summary:
+    shares, cost_basis, divd, percent = st.columns(4)
+
+    shares.metric("# of Shares", f"{sec_summary.get('Shares', 'N/A')}", border=True)
+    cost_basis.metric("Cost Basis", f"${sec_summary.get('CB', 0):,.2f}", border=True)
+    divd.metric("$ Dividends", f"${sec_summary.get('Div', 0):,.2f}", border=True)
+    percent.metric("% of Portfolio", f"{sec_summary.get('Percent', 'TBD')}", border=True)
+else:
+    st.warning("Please select a stock to view its summary.")
+
+
+
+
+
+
+# -------- CHART  -------- #
+g_coll1, gcol2 = st.columns([3,1])
+graph_df = st.session_state.get("graph_data")
+print(graph_df.head(5))
+# Line Chart - Stock Prices Over Time
+st.header("Stock Prices Over Time")
+
+if not graph_df.empty and all(col in graph_df.columns for col in ["Date", "Adj_close"]):
+    fig_line = px.line(
+        graph_df,
+        x="Date",
+        y="Adj_close",
+        title="Adjusted Close Over Time",
+        markers=True
+    )
+    with g_coll1:
+        st.plotly_chart(fig_line, use_container_width=True)
+
+
+elif (
+    st.session_state.get("ticker_selectbox") not in [None, "No Selection"]
+    and isinstance(st.session_state.get("date_input"), tuple)
+):
+    with g_coll1:
+        st.info("Loading chart data...")
+
+else:
+    with g_coll1:
+        st.info("Chart will appear once stock data is loaded.")
+
+with gcol2: 
+    # These are place holders 
+    st.metric(label="20D Moving Average", value=4, delta=-0.5, delta_color="inverse",border=True)
+
+    st.metric(
+        label="20D Volitialy ", value=123, delta=123, delta_color="off", border=True)
+    st.metric(label="EXPO moving average", value=4, delta=-0.5, delta_color="inverse",border=True)
+
+   
