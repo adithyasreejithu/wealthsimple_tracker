@@ -31,27 +31,64 @@ logger.addHandler(file_handler)
 
 class YFinanceFetcher:
     def __init__(self, ticker):
+        logger.info(f"Started processing ticker: {ticker}") 
         self.ticker = ticker
         self.sdate = os.getenv("PORTFOILIO_STARTDATE")
         self.tdy = datetime.today().strftime("%Y-%m-%d")
         self.hist = func.hist_database_check()
+        self.flag = False
         self.bookcost = 0
         self.shares = 0 
         self.value = 0 
 
+    # def _get_stock_history_db(self):
+    #     logger.debug(f"Checking last saved history for {self.ticker[0]} in database...")
+    #     rdate = func.get_ticker_last_date_history(self.ticker[0])
+    #     # print(rdate)
+    #     if rdate == None: 
+    #         rdate = self.sdate
+    #     else: 
+    #         if self.hist != []: # In real usecase this will be !=
+    #             rdate = datetime.strptime(rdate[0],"%Y-%m-%d").date()
+    #             self.tdy = datetime.strptime(self.tdy,"%Y-%m-%d").date()
+    #             rdate = rdate+timedelta(days=1)
+    #             self.sdate = rdate
+    #             print(type(self.sdate))
+    #             print(type(self.tdy))
+
+    #             if self.sdate == self.tdy:
+    #                 logger.info(f"No new data needed for {self.ticker[0]} — already up to date.")
+    #                 self.flag = True 
+
     def _get_stock_history_db(self):
-        if self.hist == []: # In real usecase this will be !=
-            # Call database look for last date 
-            # Get the last information given
-            pass
+        logger.debug(f"Checking last saved history for {self.ticker[0]} in database...")
+        rdate = func.get_ticker_last_date_history(self.ticker[0])
+        self.tdy = datetime.strptime(self.tdy, "%Y-%m-%d").date()  # Convert once here
+
+        if not rdate or rdate[0] is None:  # Handles None, empty list, or (None,)
+            logger.info(f"No previous history for {self.ticker[0]} — using start date from env.")
+            self.sdate = datetime.strptime(self.sdate, "%Y-%m-%d").date()
+            self.flag = False
+        else:
+            if self.hist:  # if self.hist is not empty
+                rdate = datetime.strptime(rdate[0], "%Y-%m-%d").date() + timedelta(days=1)
+                self.sdate = rdate
+
+                logger.debug(f"Start date for {self.ticker[0]}: {self.sdate}, today: {self.tdy}")
+                if self.sdate == self.tdy:
+                    logger.info(f"No new data needed for {self.ticker[0]} — already up to date.")
+                    self.flag = True
+
 
     def _get_ticker_suffix(self):
         # Append '.TO' if ticker is Canadian
         if self.ticker[1].lower() == "cad":
             return self.ticker[0] + ".TO"
+        logger.debug(f"Using ticker suffix for {self.ticker[0]}: {self.ticker[0]}")
         return self.ticker[0]
 
     def _modify_dataframe(self, dataset):
+        logger.debug(f"Cleaning data for {self.ticker[0]}")
         func.get_stock_data_bundle(self.ticker)
         custom_hist = ["Open", "Close", "High", "Low", "Adj Close"]
         dataset = dataset[custom_hist].copy()
@@ -78,9 +115,11 @@ class YFinanceFetcher:
         ]]
 
         print(dataset.head())
+        logger.info(f"Inserting cleaned data for {self.ticker[0]} into the database")
         func.dateframe_to_db(dataset)
     
     def _populate_dataframe(self, dataset):
+        # print("entered")
         bundle = func.get_stock_data_bundle(self.ticker)
 
         dataset["Date"] = pd.to_datetime(dataset["Date"])
@@ -116,30 +155,38 @@ class YFinanceFetcher:
         self._reformat_dataframe_db(dataset)
         
     def __call__(self):
-        try:
-            suffix = self._get_ticker_suffix()
-            session = requests.Session(impersonate="chrome")
-            stock = yf.Ticker(suffix, session=session)
-            self.history = stock.history(start=self.sdate, end=self.tdy, interval="1d", auto_adjust=False)
-            cleaned_data = self._modify_dataframe(self.history)
-            self._populate_dataframe(cleaned_data)
+        self._get_stock_history_db()
+        if self.flag != True:
+            try:
+                suffix = self._get_ticker_suffix()
+                logger.debug(f"Fetching data from Yahoo Finance for {suffix}")
+                session = requests.Session(impersonate="chrome")
+                stock = yf.Ticker(suffix, session=session)
+                self.history = stock.history(start=self.sdate, end=self.tdy, interval="1d", auto_adjust=False)
+                cleaned_data = self._modify_dataframe(self.history)
+                self._populate_dataframe(cleaned_data)
 
-            return cleaned_data
-        except Exception as e:
-            logger.debug(f"Exception occurred: {e}")
-            return None
-        
+                return cleaned_data
+            except Exception as e:
+                logger.debug(f"Exception occurred: {e}")
+                return None
+        else :
+            print("todays information as already been inputed")
+            
 
 # if __name__ == "__main__":
 #     main()
 
-tickers = func.get_tickers()
-# hist_data = func.hist_database_check()
 
+tickers = func.get_tickers()
+
+# For Testing 
 # fetch = YFinanceFetcher(("PZA", "Cad")) 
 # df = fetch()
 
+# For Realtime Running
 for tick in tickers:    
     fetch = YFinanceFetcher(tick)
     df = fetch()
+
 
